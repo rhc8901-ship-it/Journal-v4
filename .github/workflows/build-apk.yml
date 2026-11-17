@@ -1,0 +1,66 @@
+name: Build RC Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Prepare web assets and bundle native voice bridge
+        run: |
+          mkdir -p www
+          cp index.html manifest.json sw.js icon-192.png icon-512.png www/
+          npm run build:voice
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Generate Android launcher icons
+        run: npx @capacitor/assets generate --android --iconBackgroundColor '#06080e' --iconBackgroundColorDark '#06080e' --splashBackgroundColor '#06080e' --splashBackgroundColorDark '#06080e'
+
+      - name: Sync Capacitor plugins and web assets
+        run: npx cap sync android
+
+      - name: Verify speech plugin package and web bridge
+        run: |
+          npm ls @capacitor-community/speech-recognition --depth=0
+          test -s www/voice-bridge.js
+          test -d node_modules/@capacitor-community/speech-recognition/android
+          echo "Speech plugin package and bundled JS bridge are present. Native registration is handled by the successful cap sync step."
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC-Trading-Journal-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
